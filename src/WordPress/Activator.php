@@ -2,7 +2,14 @@
 namespace WPMailDesk\WordPress;
 
 final class Activator {
-    public static function activate(): void {
+    public static function activate( bool $network_wide = false ): void {
+        if ( is_multisite() && $network_wide ) {
+            foreach ( get_sites( array( 'fields' => 'ids', 'number' => 0 ) ) as $site_id ) {
+                switch_to_blog( (int) $site_id );
+                try { self::activate(); } finally { restore_current_blog(); }
+            }
+            return;
+        }
         self::create_tables();
         Capabilities::ensure_caps();
         add_filter( 'cron_schedules', static function ( array $schedules ): array { $schedules['wpmd_five_minutes'] = array( 'interval' => 300, 'display' => 'Every Five Minutes' ); return $schedules; } );
@@ -12,11 +19,16 @@ final class Activator {
         update_option( 'wpmd_db_version', WPMD_VERSION, false );
     }
 
-    public static function deactivate(): void {
-        $timestamp = wp_next_scheduled( 'wpmd_queue_tick' );
-        if ( $timestamp ) {
-            wp_unschedule_event( $timestamp, 'wpmd_queue_tick' );
+    public static function deactivate( bool $network_wide = false ): void {
+        if ( is_multisite() && $network_wide ) {
+            foreach ( get_sites( array( 'fields' => 'ids', 'number' => 0 ) ) as $site_id ) {
+                switch_to_blog( (int) $site_id );
+                try { self::deactivate(); } finally { restore_current_blog(); }
+            }
+            return;
         }
+        wp_clear_scheduled_hook( 'wpmd_queue_tick' );
+        wp_clear_scheduled_hook( 'wpmd_queue_continue' );
     }
 
     private static function create_tables(): void {
@@ -66,6 +78,7 @@ final class Activator {
             id bigint unsigned NOT NULL AUTO_INCREMENT,
             account_id bigint unsigned NOT NULL,
             remote_name varchar(500) NOT NULL,
+            remote_hash char(64) NULL,
             display_name varchar(255) NOT NULL,
             delimiter varchar(10) NULL,
             special_use varchar(40) NULL,
@@ -76,7 +89,7 @@ final class Activator {
             unread_count int unsigned NOT NULL DEFAULT 0,
             message_count int unsigned NOT NULL DEFAULT 0,
             last_sync_at datetime NULL,
-            PRIMARY KEY (id), UNIQUE KEY account_folder (account_id,remote_name(190)), KEY special_use (special_use)
+            PRIMARY KEY (id), UNIQUE KEY account_remote_hash (account_id,remote_hash), KEY special_use (special_use)
         ) $c;";
         $sql[] = "CREATE TABLE {$p}threads (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -141,6 +154,7 @@ final class Activator {
             cache_status varchar(30) NOT NULL DEFAULT 'remote',
             scan_status varchar(30) NOT NULL DEFAULT 'unknown',
             local_storage_key varchar(500) NULL,
+            content_base64 longtext NULL,
             PRIMARY KEY (id), KEY message_id (message_id)
         ) $c;";
         $sql[] = "CREATE TABLE {$p}drafts (
@@ -221,6 +235,7 @@ final class Activator {
         ) $c;";
         $sql[] = "CREATE TABLE {$p}jobs (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint unsigned NULL,
             type varchar(100) NOT NULL,
             payload_json longtext NOT NULL,
             status varchar(30) NOT NULL DEFAULT 'queued',
@@ -231,7 +246,7 @@ final class Activator {
             last_error text NULL,
             created_at datetime NOT NULL,
             updated_at datetime NOT NULL,
-            PRIMARY KEY (id), KEY work (status,available_at)
+            PRIMARY KEY (id), KEY work (status,available_at), KEY account_id (account_id)
         ) $c;";
         $sql[] = "CREATE TABLE {$p}activity_log (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -247,7 +262,23 @@ final class Activator {
         ) $c;";
 
         foreach ( $sql as $statement ) {
+            // dbDelta requires each index definition on a separate line.
+            $statement = str_replace( array( ', KEY ', ', UNIQUE KEY ' ), array( ",\n            KEY ", ",\n            UNIQUE KEY " ), $statement );
+            $statement = str_replace( ") $c;", ") ENGINE=InnoDB $c;", $statement );
             dbDelta( $statement );
+            if ( $wpdb->last_error ) throw new \RuntimeException( 'MailDesk database installation failed. Check database permissions.' );
+            preg_match( '/CREATE TABLE ([^\s]+)/', $statement, $table_match );
+            $table = $table_match[1];
+            $status = $wpdb->get_row( $wpdb->prepare( 'SHOW TABLE STATUS LIKE %s', $wpdb->esc_like( $table ) ), ARRAY_A );
+            if ( ! $status ) throw new \RuntimeException( 'MailDesk table installation could not be verified.' );
+            if ( strcasecmp( $status['Engine'] ?? '', 'InnoDB' ) !== 0 && false === $wpdb->query( "ALTER TABLE {$table} ENGINE=InnoDB" ) ) throw new \RuntimeException( 'MailDesk requires transactional InnoDB tables.' );
+        }
+        $wpdb->query( "UPDATE {$p}folders SET remote_hash=SHA2(remote_name,256) WHERE remote_hash IS NULL" );
+        $old_index = $wpdb->get_row( "SHOW INDEX FROM {$p}folders WHERE Key_name='account_folder'" );
+        if ( $old_index ) $wpdb->query( "ALTER TABLE {$p}folders DROP INDEX account_folder" );
+        foreach ( $wpdb->get_results( "SELECT id,payload_json FROM {$p}jobs WHERE account_id IS NULL", ARRAY_A ) ?: array() as $job ) {
+            $payload = json_decode( $job['payload_json'], true ) ?: array();
+            $wpdb->update( $p . 'jobs', array( 'account_id' => absint( $payload['account_id'] ?? 0 ) ), array( 'id' => $job['id'] ) );
         }
     }
 }

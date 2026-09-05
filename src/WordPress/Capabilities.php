@@ -10,7 +10,8 @@ final class Capabilities {
     );
 
     public static function register(): void {
-        add_action( 'admin_init', array( self::class, 'ensure_caps' ) );
+        // Capabilities are installed on activation/migration. Do not undo a site's
+        // deliberate role restrictions on every admin request.
     }
 
     public static function ensure_caps(): void {

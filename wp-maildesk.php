@@ -3,7 +3,7 @@
  * Plugin Name: MailDesk for WordPress
  * Plugin URI: https://github.com/ildrm/wordpress-maildesk
  * Description: Secure multi-account email client for WordPress with IMAP synchronization, SMTP sending, drafts, contacts, rules, signatures, templates, shared access, diagnostics, and a modern admin interface.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Requires at least: 6.6
  * Requires PHP: 8.1
  * Author: Shahin Ilderemi
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPMD_VERSION', '1.0.0' );
+define( 'WPMD_VERSION', '1.1.0' );
 define( 'WPMD_FILE', __FILE__ );
 define( 'WPMD_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WPMD_URL', plugin_dir_url( __FILE__ ) );

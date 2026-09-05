@@ -1,4 +1,4 @@
-# Implementation Roles Used for MailDesk
+# Review Roles for MailDesk
 
 1. **Product Architect / Product Manager** — scope, priorities, workflows, provider behavior, failure states, roadmap and acceptance criteria.
 2. **WordPress Plugin Architect** — hooks, capabilities, activation/migrations, REST integration, Site Health, privacy and plugin lifecycle.
@@ -20,3 +20,16 @@
 ## Highest-risk roles
 
 Security Engineer, Email Protocol Engineer, Database Architect, Queue/Reliability Engineer and UI/UX Designer are treated as first-class roles because failures in these areas can cause credential compromise, mail duplication/loss, cross-account exposure, synchronization corruption or an unusable client.
+
+## Review coverage (2026-09-05)
+
+The review applies all 16 roles above to every shipped PHP, JavaScript and CSS file, the schema, lifecycle hooks, README and release manifest. Concrete findings, fixes, validation evidence and remaining provider-dependent limits are summarized in the review deliverable; reproducible checks are documented in `tests/README.md`.
+
+| Review area | Primary roles | Acceptance evidence |
+| --- | --- | --- |
+| Authorization, secrets, safe rendering and destinations | Security, identity, privacy | REST isolation, malformed input, encryption and tracking tests |
+| IMAP, MIME, SMTP and message state | Protocol, backend, QA | Local protocol fixtures and message decoding tests |
+| Mail identity, persistence, queues and migrations | Database, reliability, WordPress | WordPress integration and concurrent claim tests |
+| Navigation, composition, drafts, contacts, settings | Frontend, UI/UX, accessibility, product | Browser workflows at desktop and mobile sizes |
+| Resource bounds, lifecycle and operation | Performance, operations, WordPress | Bounded processing, upgrade/activation and cron checks |
+| Feature claims and package integrity | Product, release/documentation | Feature map, reproducible tests and regenerated manifest |

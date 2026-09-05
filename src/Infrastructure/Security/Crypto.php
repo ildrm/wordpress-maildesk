@@ -6,6 +6,7 @@ use RuntimeException;
 final class Crypto {
     private function key(): string {
         $material = defined( 'WPMD_ENCRYPTION_KEY' ) ? (string) WPMD_ENCRYPTION_KEY : wp_salt( 'auth' ) . wp_salt( 'secure_auth' );
+        if ( '' === $material ) throw new RuntimeException( 'Encryption key must not be empty.' );
         return hash( 'sha256', $material, true );
     }
 
@@ -40,6 +41,9 @@ final class Crypto {
             throw new RuntimeException( 'Invalid encrypted payload.' );
         }
         if ( 's1:' === $prefix ) {
+            if ( ! function_exists( 'sodium_crypto_secretbox_open' ) || strlen( $raw ) < 40 ) {
+                throw new RuntimeException( 'Invalid secretbox payload or unavailable Sodium backend.' );
+            }
             $n = SODIUM_CRYPTO_SECRETBOX_NONCEBYTES;
             $pt = sodium_crypto_secretbox_open( substr( $raw, $n ), substr( $raw, 0, $n ), $this->key() );
             if ( false === $pt ) {
@@ -48,6 +52,9 @@ final class Crypto {
             return $pt;
         }
         if ( 'g1:' === $prefix ) {
+            if ( ! function_exists( 'openssl_decrypt' ) || strlen( $raw ) < 29 ) {
+                throw new RuntimeException( 'Invalid GCM payload or unavailable OpenSSL backend.' );
+            }
             $iv  = substr( $raw, 0, 12 );
             $tag = substr( $raw, 12, 16 );
             $pt  = openssl_decrypt( substr( $raw, 28 ), 'aes-256-gcm', $this->key(), OPENSSL_RAW_DATA, $iv, $tag );
